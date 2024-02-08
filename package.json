@@ -1,0 +1,11 @@
+{
+  "name": "dirc",
+  "version": "1.0.0",
+  "description": "An IRC-esque Discord commandline experience",
+  "main": "dIRC.js",
+  "author": "rozbrajaczpoziomow <roz@rozbrajacz.futbol>",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}
