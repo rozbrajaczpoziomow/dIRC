@@ -1,12 +1,13 @@
 const { WebSocket } = require('ws');
-const config = require('./config.json');
-const debug = Boolean(config.debug || process.env.DEBUG);
+const Config = require('./config.json');
+const Debug = Boolean(Config.debug || process.env.DEBUG);
+const DisableColors = Boolean(Config.colors['$disable']);
 
-const users = {}, friends = {}, privateChannels = {};
+const Users = {}, Friends = {}, PrivateChannels = {}, Presence = {};
 let heartbeatInterval, heartbeatTermId, heartbeatSendId, lastSequence; // heartbeat-centered vars
 let borkedTokenId, welcomed;
 let currentChannel;
-let usernameLength;
+let usernameLength, ownUID;
 let ws;
 
 function init() {
@@ -14,13 +15,14 @@ function init() {
 
 	ws.on('open', () => {
 		debugLog(`>> Connection open`);
-		ws.send(JSON.stringify({op:2,d:{token:config.token,capabilities:16381,properties:{os:'Linux',browser:'dIRC',device:'',system_locale:'en-US',browser_user_agent:'Możilla/4.1 (X12; Linux x68_46; rv:69.0) Gecko/00000000 Firefox/69.0',browser_version:'69.0',os_version:'',referrer:'',referring_domain:'',referrer_current:'',referring_domain_current:'',release_channel:'stable',client_build_number:260101,client_event_source:null},presence:{status:'online',since:0,activities:[],afk:false},compress:false,client_state:{guild_versions:{},highest_last_message_id:'0',read_state_version:0,user_guild_settings_version:-1,private_channels_version:'0',api_code_version:0}}}));
+		ws.send(JSON.stringify({op:2,d:{token:Config.token,capabilities:16381,properties:{os:'Linux',browser:'dIRC',device:'',system_locale:'en-US',browser_user_agent:'Możilla/4.1 (X12; Linux x68_46; rv:69.0) Gecko/00000000 Firefox/69.0',browser_version:'69.0',os_version:'',referrer:'',referring_domain:'',referrer_current:'',referring_domain_current:'',release_channel:'stable',client_build_number:260101,client_event_source:null},presence:{status:'online',since:0,activities:[],afk:false},compress:false,client_state:{guild_versions:{},highest_last_message_id:'0',read_state_version:0,user_guild_settings_version:-1,private_channels_version:'0',api_code_version:0}}}));
 		borkedTokenId = setTimeout(() => {
 			console.log('Authentication failed. Exiting.');
 			ws.close();
 			process.exit(1);
 		}, 10000);
-		process.stdout.write('Logging in...\r');
+		if(!welcomed)
+			process.stdout.write('Logging in...\r');
 	});
 
 	ws.on('message', data => {
@@ -43,49 +45,50 @@ function init() {
 
 		switch(json.t) {
 			case 'READY':
-				if(!welcomed) {
-					console.log(`Welcome to dIRC, ${json.d.user.username}!`);
-					usernameLength = json.d.user.username.length;
-					welcomed = true;
-				}
 				clearTimeout(borkedTokenId);
-				json.d.users.forEach(u => users[u.id] = u.username);
-				json.d.private_channels.filter(ch => ch.type == 1).forEach(ch => privateChannels[ch.recipient_ids[0]] = ch.id);
-				json.d.relationships.forEach(fr => friends[fr.id] = users[fr.id]);
+				if(welcomed)
+					break;
+
+				console.log(`Welcome to dIRC, ${json.d.user.username}!`);
+				usernameLength = json.d.user.username.length;
+				ownUID = json.d.user.id;
+				json.d.users.forEach(u => Users[u.id] = u.username);
+				json.d.private_channels.filter(ch => ch.type == 1).forEach(ch => PrivateChannels[ch.recipient_ids[0]] = ch.id);
+				json.d.relationships.forEach(fr => Friends[fr.id] = Users[fr.id]);
 				debugLog(`>> Saved ${Object.keys(json.d.users).length} user id mappings`);
-				debugLog(`>> Saved ${Object.keys(privateChannels).length} private channel ids`);
-				debugLog(`>> Saved ${Object.keys(friends).length} friend ids`);
+				debugLog(`>> Saved ${Object.keys(PrivateChannels).length} private channel ids`);
+				debugLog(`>> Saved ${Object.keys(Friends).length} friend ids`);
+				welcomed = true;
+				break;
+
+			case 'READY_SUPPLEMENTAL':
+				json.d.merged_presences.friends.forEach(fr => Presence[fr.id] = fr.status);
+				debugLog(`>> Saved ${json.d.merged_presences.friends.length} friend presences`);
 				break;
 
 			case 'PRESENCE_UPDATE':
-				let username = users[json.d.user.id] ?? json.d.user.id;
-				let status = json.d.status;
-				let platformStatus = Object.entries(json.d.client_status).map(([k, v]) => `${v} on ${k}`).join(', ');
-				let activity = json.d.activities;
-				// console.log(`\t\t ${username} is now ${status} (${platformStatus}) and has ${activity.length} activities`);
+				if(!Friends[json.d.user.id] || json.d.status == Presence[json.d.user.id])
+					break;
+
+				Presence[json.d.user.id] = json.d.status;
+
+				if(json.d.user.id != currentChannel?.uid)
+					break;
+
+				console.log(`${DisableColors? '' : resetColor}${Friends[json.d.user.id]} is now ${json.d.status}${' '.repeat(50)}`);
+				if(stdinForward)
+					stdinForward('$reprompt');
 				break;
 
-			case 'CHANNEL_CREATE':
-			case 'CHANNEL_DELETE':
-				// if(json.d.type == 1)
-				// 	if(json.t == 'CHANNEL_CREATE')
-				// 		privateChannels.add(json.d.id);
-				// 	else
-				// 		privateChannels.delete(json.d.id);
-				// break;
+			// case 'MESSAGE_DELETE':
+			// case 'MESSAGE_UPDATE':
+			case 'MESSAGE_CREATE':
+				if(json.d.channel_id != currentChannel?.id)
+					break;
 
-			case 'TYPING_START':
-			case 'MESSAGE_DELETE':
-			// case 'CHANNEL_DELETE':
-			// case 'GUILD_BAN_ADD':
-			// case 'GUILD_AUDIT_LOG_ENTRY_CREATE':
-			case 'MESSAGE_CREATE': //
-			case 'MESSAGE_UPDATE': //
-				let uid = json.d.author?.id ?? json.d.user_id ?? 'ð';
-				// if(offlineUsers[uid]) {
-					// console.log(`\t\t ${users[uid] ?? uid} is ${typeof offlineUsers[uid] == 'number'? 'still' : 'now'} invisible (detected) and has 0 activities`);
-					// offlineUsers[uid] = 1;
-				// }
+				printMessage(currentChannel.history.at(-1), json.d);
+
+				currentChannel.history.push(json.d);
 				break;
 		}
 	});
@@ -102,6 +105,25 @@ function restart() {
 	init();
 }
 
+function printMessage(prev, message) {
+	let needColor = !DisableColors && prev?.author?.id != message.author.id;
+	let c = (message.attachments.length > 0? '[&' + message.attachments.map(at => at.filename).join(', ') + '] ' : '') + message.content;
+	if(c.trim() == '')
+		c = JSON.stringify(message); // shouldn't happen.
+	let pad = Math.max(usernameLength, message.author.username.length);
+	console.log(`${needColor? getColor(message.author.id) : ''}${message.author.username.padEnd(pad)} ${c}`);
+}
+
+const resetColor = '\x1b[0m';
+function getColor(uid) {
+	if(Config.colors[uid] == undefined)
+		Config.colors[uid] = Math.floor(Math.random() * 216) + 16;
+
+	return `\x1b[38;5;${Config.colors[uid]}m`;
+}
+
+// stdin-esque garbage
+
 process.stdin.setRawMode(true);
 let stdinForward;
 process.stdin.on('data', buffer => {
@@ -116,6 +138,12 @@ process.stdin.on('data', buffer => {
 		process.exit(0);
 	}
 
+	if(key == '\x1b') { // ESC
+		stdinForward = null;
+		process.stdout.write(' '.repeat(50) + '\r');
+		return;
+	}
+
 	if(!welcomed)
 		return;
 
@@ -124,10 +152,10 @@ process.stdin.on('data', buffer => {
 
 	// [o]pen a channel
 	if(key == 'o') {
-		return input('$init', 'Open', 'searching by username', Object.values(friends), async data => {
-			let uid = Object.entries(users).filter(([id, user]) => user == data)[0][0];
+		return autocompleteInput('$init', 'Open', 'searching by username', Object.values(Friends), async data => {
+			let uid = Object.entries(Users).filter(([id, user]) => user == data)[0][0];
 			currentChannel = {uid};
-			if(!privateChannels[uid]) {
+			if(!PrivateChannels[uid]) {
 				// Create the DM channel
 				let channelData = await fetch('https://discord.com/api/v9/users/@me/channels', {
 					body: JSON.stringify({recipients:[uid]}),
@@ -135,66 +163,87 @@ process.stdin.on('data', buffer => {
 					headers: {
 						'User-Agent': 'dIRC/1.0',
 						'Content-Type': 'application/json',
-						Authorization: config.token
+						Authorization: Config.token
 					}
 				});
 				currentChannel.id = (await channelData.json()).id;
-			} else currentChannel.id = privateChannels[uid];
+			} else currentChannel.id = PrivateChannels[uid];
 			// Fetch the channel history
 			let channelHistory = await fetch(`https://discord.com/api/v9/channels/${currentChannel.id}/messages?limit=50`, {
 				headers: {
 					'User-Agent': 'dIRC/1.0',
-					Authorization: config.token
+					Authorization: Config.token
 				}
 			});
 			currentChannel.history = await channelHistory.json();
-			console.log();
-			for(var i = currentChannel.history.length - 1; i >= 0; --i)
-				printMessage(currentChannel.history[i]);
+			currentChannel.history.reverse();
+			for(var i = 0; i < currentChannel.history.length; ++i)
+				printMessage(currentChannel.history[i - 1], currentChannel.history[i]);
+			process.stdout.write(resetColor);
 		});
-	} else if(key == 'C') {
-		return input('$init', 'Color for', 'searching by username', Object.values(friends), data => {
-			let uid = Object.entries(users).filter(([id, user]) => user == data)[0][0];
-			input('$init', 'Color', '8-bit color code', [], clr => {
+	} else if(key == 'C') { // [C]olor
+		if(DisableColors)
+			return console.log('Colors have been disabled via a config option.');
+		return autocompleteInput('$init', 'Color for', 'searching by username', Object.values(Friends), data => {
+			let uid = Object.entries(Users).filter(([id, user]) => user == data)[0][0];
+			autocompleteInput('$init', 'Color', '8-bit color code', [], clr => {
 				let color = +clr;
 				if(isNaN(color) || color < 0 || color > 255)
 					console.log('Invalid 8-bit color code, if you need a list, well, TODO'); // TODO `for i in $(seq 0 255); do printf "\x1b[38;5;${i}mA"; done`
-				config.colors[uid] = color;
-				yesno('$init', 'Recolor current conversation history', true, redraw => {
+				Config.colors[uid] = color;
+				yesnoInput('$init', 'Recolor current conversation history', true, redraw => {
 					if(!redraw)
 						return;
 
 					// TODO: this sucks lol
 					console.log('\n'.repeat(10));
-					for(var i = currentChannel.history.length - 1; i >= 0; --i)
-						printMessage(currentChannel.history[i]);
+					for(var i = 0; i < currentChannel.history.length; ++i)
+				printMessage(currentChannel.history[i - 1], currentChannel.history[i]);
+					process.stdout.write(resetColor);
 				});
 			});
 		});
+	} else if(key == 'w') { // [w]rite message
+		if(currentChannel == null)
+			return console.log('[o]pen a channel first');
+
+		messageInput('$init');
 	}
 });
 
-// TODO: color coding per username for easier distinguishing
-function printMessage(message) {
-	let c = (message.attachments.length > 0? '[&' + message.attachments.map(at => at.filename).join(', ') + '] ' : '') + message.content;
-	if(c.trim() == '')
-		c = JSON.stringify(message); // shouldn't happen.
-	let pad = Math.max(usernameLength, message.author.username.length);
-	console.log(`${getColor(message.author.id)}${message.author.username.padEnd(pad)} ${c}${resetColor}`);
-}
-
-const resetColor = '\x1b[0m';
-function getColor(uid) {
-	if(config.colors[uid] == undefined)
-		config.colors[uid] = Math.floor(Math.random() * 216) + 16;
-
-	return `\x1b[38;5;${config.colors[uid]}m`;
+let messageWritten;
+function messageInput(char) {
+	const messageStart = `${DisableColors? '' : getColor(ownUID)}> `;
+	if(char == '$init') {
+		process.stdout.write(messageStart + '\r');
+		stdinForward = messageInput;
+		messageWritten = '';
+		return;
+	} else if(char == '$reprompt') {
+		return process.stdout.write(`${messageStart}${messageWritten}\r`)
+	} else if(char == '\x7f') { // backspace
+		messageWritten = messageWritten.slice(0, -1);
+	} else if(char == '\r' || char == '\n') {
+		stdinForward = null;
+		return fetch('https://discord.com/api/v9/channels/838163590686441512/messages', {
+			body: JSON.stringify({content: messageWritten}),
+			method: 'POST',
+			headers: {
+				'User-Agent': 'dIRC/1.0',
+				'Content-Type': 'application/json',
+				Authorization: Config.token
+			}
+		});
+	} else {
+		messageWritten += char;
+	}
+	process.stdout.write(`${messageStart}${messageWritten}${' '.repeat(50)}\r`);
 }
 
 let searchPrompt, searchPhrase, searchId, searchSuggestions, searchCallback, searchPossible;
-function input(char, prompt, rest, possible, callback) {
+function autocompleteInput(char, prompt, rest, possible, callback) {
 	if(char == '$init') {
-		stdinForward = input;
+		stdinForward = autocompleteInput;
 		process.stdout.write(`${prompt}: [${rest}]\r`);
 		searchPrompt = prompt;
 		searchPhrase = '';
@@ -209,13 +258,10 @@ function input(char, prompt, rest, possible, callback) {
 		return;
 	}
 
-	// console.log('\n' + char.charCodeAt(0).toString(16).padStart(2, '0') + '\n');
-	if(char == '\x1b') { // ESC
-		stdinForward = null;
-		process.stdout.write(' '.repeat(50) + '\r');
-		return;
-	}
+	if(char == '$reprompt')
+		char = '';
 
+	// console.log('\n' + char.charCodeAt(0).toString(16).padStart(2, '0') + '\n');
 	if(char == '\n' || char == '\r')
 		char = '~';
 
@@ -271,18 +317,16 @@ function input(char, prompt, rest, possible, callback) {
 }
 
 let yesnoCallback, yesnoDefault;
-function yesno(char, prompt, _default, callback) {
-	if(char == '$init') {
-		stdinForward = yesno;
+function yesnoInput(char, prompt, _default, callback) {
+	if(char == '$init' || char == '$reprompt') {
 		process.stdout.write(`${prompt}? [${_default? 'Y' : 'y'}/${_default? 'n' : 'N'}]${' '.repeat(50)}\r`);
+
+		if(char == '$reprompt')
+			return;
+
+		stdinForward = yesnoInput;
 		yesnoCallback = callback;
 		yesnoDefault = _default;
-		return;
-	}
-
-	if(char == '\x1b') { // ESC
-		stdinForward = null;
-		process.stdout.write(' '.repeat(50) + '\r');
 		return;
 	}
 
@@ -296,9 +340,10 @@ function yesno(char, prompt, _default, callback) {
 		return yesnoCallback(char.toLowerCase() == 'y');
 	}
 }
+
 function debugLog(m) {
-	if(debug)
-		console.log(`\x1b[38;5;8m${m}${resetColor}`);
+	if(Debug)
+		console.log(DisableColors? m : `\x1b[38;5;8m${m}${resetColor}`);
 }
 
 restart();
