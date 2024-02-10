@@ -55,15 +55,16 @@ function init() {
 				json.d.users.forEach(u => Users[u.id] = u.username);
 				json.d.private_channels.filter(ch => ch.type == 1).forEach(ch => PrivateChannels[ch.recipient_ids[0]] = ch.id);
 				json.d.relationships.forEach(fr => Friends[fr.id] = Users[fr.id]);
-				debugLog(`>> Saved ${Object.keys(json.d.users).length} user id mappings`);
-				debugLog(`>> Saved ${Object.keys(PrivateChannels).length} private channel ids`);
-				debugLog(`>> Saved ${Object.keys(Friends).length} friend ids`);
+				debugLog(`>> Loaded ${Object.keys(json.d.users).length} user id mappings`);
+				debugLog(`>> Loaded ${Object.keys(PrivateChannels).length} private channel ids`);
+				debugLog(`>> Loaded ${Object.keys(Friends).length} friend ids`);
 				welcomed = true;
 				break;
 
 			case 'READY_SUPPLEMENTAL':
-				json.d.merged_presences.friends.forEach(fr => Presence[fr.id] = fr.status);
-				debugLog(`>> Saved ${json.d.merged_presences.friends.length} friend presences`);
+				json.d.merged_presences.friends.forEach(fr => Presence[fr.user_id] = fr.status);
+				debugLog(`>> Loaded ${json.d.merged_presences.friends.length} friend presences`);
+				Object.keys(Friends).forEach(id => Presence[id] = Presence[id] ?? 'probably offline');
 				break;
 
 			case 'PRESENCE_UPDATE':
@@ -198,7 +199,7 @@ process.stdin.on('data', buffer => {
 					// TODO: this sucks lol
 					console.log('\n'.repeat(10));
 					for(var i = 0; i < currentChannel.history.length; ++i)
-				printMessage(currentChannel.history[i - 1], currentChannel.history[i]);
+						printMessage(currentChannel.history[i - 1], currentChannel.history[i]);
 					process.stdout.write(resetColor);
 				});
 			});
@@ -207,9 +208,16 @@ process.stdin.on('data', buffer => {
 		if(currentChannel == null)
 			return console.log('[o]pen a channel first');
 
-		messageInput('$init');
+		return messageInput('$init');
+	} else if(key == 's') { // [s]tatus
+		if(currentChannel == null)
+			return console.log('[o]pen a channel first');
+
+		console.log(`${Friends[currentChannel.uid]} is now ${Presence[currentChannel.uid]}${' '.repeat(50)}`);
 	}
 });
+
+// input types
 
 let messageWritten;
 function messageInput(char) {
