@@ -108,11 +108,14 @@ function restart() {
 
 function printMessage(prev, message) {
 	let needColor = !DisableColors && prev?.author?.id != message.author.id;
-	let c = (message.attachments.length > 0? '[&' + message.attachments.map(at => at.filename).join(', ') + '] ' : '') + message.content;
+	let c =
+		(message.referenced_message? `[^${currentChannel.history.filter(msg => msg.id == message.referenced_message.id)[0]?.['$seq'] ?? 'old'}] ` : '') +
+		(message.attachments.length > 0? `[&${message.attachments.map(at => at.filename).join(', ')}] ` : '') +
+		message.content;
 	if(c.trim() == '')
 		c = JSON.stringify(message); // shouldn't happen.
 	let pad = Math.max(usernameLength, message.author.username.length);
-	console.log(`${needColor? getColor(message.author.id) : ''}${message.author.username.padEnd(pad)} ${c}`);
+	console.log(`${needColor? getColor(message.author.id) : ''}${`${message['$seq']}`.padEnd(3)} ${message.author.username.padEnd(pad)} ${c}`);
 }
 
 const resetColor = '\x1b[0m';
@@ -178,8 +181,10 @@ process.stdin.on('data', buffer => {
 			});
 			currentChannel.history = await channelHistory.json();
 			currentChannel.history.reverse();
-			for(var i = 0; i < currentChannel.history.length; ++i)
+			for(var i = 0; i < currentChannel.history.length; ++i) {
+				currentChannel.history[i]['$seq'] = i + 1;
 				printMessage(currentChannel.history[i - 1], currentChannel.history[i]);
+			}
 			process.stdout.write(resetColor);
 		});
 	} else if(key == 'C') { // [C]olor
