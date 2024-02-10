@@ -87,6 +87,7 @@ function init() {
 				if(json.d.channel_id != currentChannel?.id)
 					break;
 
+				json.d['$seq'] = currentChannel.history.at(-1)['$seq'] + 1;
 				printMessage(currentChannel.history.at(-1), json.d);
 
 				currentChannel.history.push(json.d);
@@ -224,28 +225,42 @@ process.stdin.on('data', buffer => {
 
 // input types
 
-let messageWritten;
+let messageWritten, messageReplying;
 function messageInput(char) {
-	const messageStart = `${DisableColors? '' : getColor(ownUID)}> `;
+	let messageStart = `${DisableColors? '' : getColor(ownUID)}> `;
 	if(char == '$init') {
 		process.stdout.write(messageStart + '\r');
 		stdinForward = messageInput;
 		messageWritten = '';
 		return;
-	} else if(char == '$reprompt') {
+	}
+	if(messageReplying)
+		messageStart += `^${messageReplying} `
+
+	if(char == '$reprompt') {
 		return process.stdout.write(`${messageStart}${messageWritten}\r`)
 	} else if(char == '\x7f') { // backspace
 		messageWritten = messageWritten.slice(0, -1);
 	} else if(char == '\r' || char == '\n') {
 		stdinForward = null;
+		let send = {content: messageWritten};
+		if(messageReplying)
+			send.message_reference = {message_id: currentChannel.history.filter(m => m['$seq'] == messageReplying)[0]?.id};
 		return fetch('https://discord.com/api/v9/channels/838163590686441512/messages', {
-			body: JSON.stringify({content: messageWritten}),
+			body: JSON.stringify(send),
 			method: 'POST',
 			headers: {
 				'User-Agent': 'dIRC/1.0',
 				'Content-Type': 'application/json',
 				Authorization: Config.token
 			}
+		});
+	} else if(char == '^' && messageWritten == '') {
+		return autocompleteInput('$init', 'Reply to', 'number beside message, empty to clear/cancel', [], reply => {
+			reply = +reply;
+			messageReplying = isNaN(reply) || reply < 1 || reply > currentChannel.history.at(-1)['$seq']? null : reply;
+			stdinForward = messageInput;
+			messageInput('$reprompt');
 		});
 	} else {
 		messageWritten += char;
