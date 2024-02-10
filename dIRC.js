@@ -232,6 +232,7 @@ function messageInput(char) {
 		process.stdout.write(messageStart + '\r');
 		stdinForward = messageInput;
 		messageWritten = '';
+		messageReplying = null;
 		return;
 	}
 	if(messageReplying)
@@ -246,7 +247,7 @@ function messageInput(char) {
 		let send = {content: messageWritten};
 		if(messageReplying)
 			send.message_reference = {message_id: currentChannel.history.filter(m => m['$seq'] == messageReplying)[0]?.id};
-		return fetch('https://discord.com/api/v9/channels/838163590686441512/messages', {
+		return fetch(`https://discord.com/api/v9/channels/${currentChannel.id}/messages`, {
 			body: JSON.stringify(send),
 			method: 'POST',
 			headers: {
