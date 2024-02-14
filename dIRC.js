@@ -76,7 +76,7 @@ function init() {
 				if(json.d.user.id != currentChannel?.uid)
 					break;
 
-				console.log(`${DisableColors? '' : resetColor}${Friends[json.d.user.id]} is now ${json.d.status}${' '.repeat(50)}`);
+				console.log(clearEnd(`${DisableColors? '' : resetColor}${Friends[json.d.user.id]} is now ${json.d.status}`));
 				if(stdinForward)
 					stdinForward('$reprompt');
 				break;
@@ -124,7 +124,15 @@ function getColor(uid) {
 	if(Config.colors[uid] == undefined)
 		Config.colors[uid] = Math.floor(Math.random() * 216) + 16;
 
-	return `\x1b[38;5;${Config.colors[uid]}m`;
+	return getColorR(Config.colors[uid]);
+}
+
+function getColorR(raw) {
+	return `\x1b[38;5;${raw}m`
+}
+
+function clearEnd(str) {
+	return str + ' '.repeat(Math.max(0, process.stdout.columns - str.length));
 }
 
 // stdin-esque garbage
@@ -145,7 +153,7 @@ process.stdin.on('data', buffer => {
 
 	if(key == '\x1b') { // ESC
 		stdinForward = null;
-		process.stdout.write(' '.repeat(50) + '\r');
+		process.stdout.write(clearEnd('') + '\r');
 		return;
 	}
 
@@ -191,25 +199,32 @@ process.stdin.on('data', buffer => {
 	} else if(key == 'C') { // [C]olor
 		if(DisableColors)
 			return console.log('Colors have been disabled via a config option.');
-		return autocompleteInput('$init', 'Color for', 'searching by username', Object.values(Friends), data => {
+		const cb = data => {
 			let uid = Object.entries(Users).filter(([id, user]) => user == data)[0][0];
-			autocompleteInput('$init', 'Color', '8-bit color code', [], clr => {
+			autocompleteInput('$init', 'Color', '8-bit color code, ? for list', [], clr => {
+				if(clr == '?') {
+					for(var i = 0; i < 256; ++i)
+						process.stdout.write(`${getColorR(i)}${i} `);
+					console.log(resetColor);
+					return cb(data);
+				}
+
 				let color = +clr;
 				if(isNaN(color) || color < 0 || color > 255)
-					console.log('Invalid 8-bit color code, if you need a list, well, TODO'); // TODO `for i in $(seq 0 255); do printf "\x1b[38;5;${i}mA"; done`
+					console.log(clearEnd('Invalid 8-bit color code'));
 				Config.colors[uid] = color;
 				yesnoInput('$init', 'Recolor current conversation history', true, redraw => {
 					if(!redraw)
 						return;
 
-					// TODO: this sucks lol
-					console.log('\n'.repeat(10));
+					console.log('\n'.repeat(Math.max(0, process.stdout.rows - currentChannel.history.length))); // good enough approximation
 					for(var i = 0; i < currentChannel.history.length; ++i)
 						printMessage(currentChannel.history[i - 1], currentChannel.history[i]);
 					process.stdout.write(resetColor);
 				});
 			});
-		});
+		}
+		return autocompleteInput('$init', 'Color for', 'searching by username', Object.values(Friends), cb);
 	} else if(key == 'w') { // [w]rite message
 		if(currentChannel == null)
 			return console.log('[o]pen a channel first');
@@ -219,7 +234,7 @@ process.stdin.on('data', buffer => {
 		if(currentChannel == null)
 			return console.log('[o]pen a channel first');
 
-		console.log(`${Friends[currentChannel.uid]} is now ${Presence[currentChannel.uid]}${' '.repeat(50)}`);
+		console.log(clearEnd(`${Friends[currentChannel.uid]} is currently ${Presence[currentChannel.uid]}`));
 	}
 });
 
@@ -266,7 +281,7 @@ function messageInput(char) {
 	} else {
 		messageWritten += char;
 	}
-	process.stdout.write(`${messageStart}${messageWritten}${' '.repeat(50)}\r`);
+	process.stdout.write(clearEnd(`${messageStart}${messageWritten}\r`));
 }
 
 let searchPrompt, searchPhrase, searchId, searchSuggestions, searchCallback, searchPossible;
@@ -278,7 +293,7 @@ function autocompleteInput(char, prompt, rest, possible, callback) {
 		searchPhrase = '';
 		searchCallback = data => {
 			stdinForward = undefined;
-			process.stdout.write(' '.repeat(50) + '\r');
+			process.stdout.write(clearEnd('') + '\r');
 			callback(data);
 		};
 		searchId = false;
@@ -342,13 +357,13 @@ function autocompleteInput(char, prompt, rest, possible, callback) {
 
 	let [s1, s2, s3] = searchSuggestions; // make it s h o r t e r / r e a d a b l e
 	// TODO: don't use a set amount of spaces, check for last written length and add just enough.
-	process.stdout.write(`${searchPrompt}: ${searchId? '$' : ''}${searchPhrase} ${s1? `[~${s1}` : ''}${s2? ` @${s2}` : ''}${s3? ` #${s3}` : ''}${s1? ']' : ''}${' '.repeat(50)}\r`);
+	process.stdout.write(clearEnd(`${searchPrompt}: ${searchId? '$' : ''}${searchPhrase} ${s1? `[~${s1}` : ''}${s2? ` @${s2}` : ''}${s3? ` #${s3}` : ''}${s1? ']' : ''}`) + '\r');
 }
 
 let yesnoCallback, yesnoDefault;
 function yesnoInput(char, prompt, _default, callback) {
 	if(char == '$init' || char == '$reprompt') {
-		process.stdout.write(`${prompt}? [${_default? 'Y' : 'y'}/${_default? 'n' : 'N'}]${' '.repeat(50)}\r`);
+		process.stdout.write(clearEnd(`${prompt}? [${_default? 'Y' : 'y'}/${_default? 'n' : 'N'}]`) + '\r');
 
 		if(char == '$reprompt')
 			return;
