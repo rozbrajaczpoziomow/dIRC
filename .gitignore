@@ -3,3 +3,4 @@ package-lock.json
 config.json
 ready.json
 ready_supplemental.json
+attachments/*

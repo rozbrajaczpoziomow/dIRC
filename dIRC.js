@@ -1,4 +1,8 @@
 const { WebSocket } = require('ws');
+const { createWriteStream, mkdirSync } = require('node:fs');
+const { Readable } = require('node:stream');
+const { finished } = require('node:stream/promises');
+const { spawn } = require('node:child_process');
 const Config = require('./config.json');
 const Debug = Boolean(Config.debug || process.env.DEBUG);
 const DisableColors = Boolean(Config.colors['$disable']);
@@ -88,7 +92,8 @@ function init() {
 					break;
 
 				json.d['$seq'] = currentChannel.history.at(-1)['$seq'] + 1;
-				printMessage(currentChannel.history.at(-1), json.d);
+				printMessage(null, json.d); // we always want to print color here.
+				process.stdout.write(resetColor);
 
 				currentChannel.history.push(json.d);
 				break;
@@ -235,6 +240,78 @@ process.stdin.on('data', buffer => {
 			return console.log('[o]pen a channel first');
 
 		console.log(clearEnd(`${Friends[currentChannel.uid]} is currently ${Presence[currentChannel.uid]}`));
+	} else if(key == 'v') { // [v]iew attachment
+		if(currentChannel == null)
+			return console.log('[o]pen a channel first');
+
+		return autocompleteInput('$init', 'View attachment for', 'number beside message', [], mid => {
+			mid = +mid;
+
+			if(isNaN(mid) || mid < 1 || mid > currentChannel.history.at(-1)['$seq'])
+				return console.log(clearEnd('Message doesn\'t exist') + '\r');
+
+			let message = currentChannel.history.filter(m => m['$seq'] == mid)[0];
+
+			if(message == null)
+				return console.log(clearEnd('Message doesn\'t exist') + '\r');
+
+			if(message.attachments.length == 0)
+				return console.log(clearEnd('Message doesn\'t have any attachments') + '\r');
+
+			cb = async aname => {
+				let url = message.attachments.filter(at => at.filename == aname)[0].url;
+
+				if(url.includes('&=&')) // webp conversion, fuck that shit.
+					url = url.slice(0, url.indexOf('&=&'));
+
+				// TODO: instead of downloading every time, check if it exists in fs first (message/uid/mid/aname)
+				let areq = await fetch(url, {
+					headers: {
+						'User-Agent': 'dIRC/1.0' // attachments don't need Authorization
+					}
+				});
+
+				if(areq.status != 200)
+					return console.log(clearEnd('Downloading attachment failed') + '\r');
+
+				let path = `attachments/${currentChannel.uid}/${message.id}`;
+				mkdirSync(path, { recursive: true, mode: 0o755 });
+
+				let fpath = path + `/${aname}`;
+				let stream = createWriteStream(fpath);
+				await finished(Readable.fromWeb(areq.body).pipe(stream));
+
+				let filetype = areq.headers.get('Content-Type');
+				// TODO: instead of hardcoding, use Config with customizable shell commands, replacements like $$file and whatnot.
+				// especially that not everyone has termimage installed and that this probably will suck on windows lmao
+				// $$fp => fpath, $$tc => process.stdout.columns, $$tr => process.stdout.rows
+				let ran = 0;
+				for(let regex in Config.attachments) {
+					// allow multiple commands to run if multiple regexes match, this is intended.
+					if(filetype.match(regex)) {
+						let [cmd, ...argv] = Config.attachments[regex].map(arg => arg.replaceAll('$$fp', fpath).replaceAll('$$tc', process.stdout.columns.toString()).replaceAll('$$tr', process.stdout.rows.toString()));
+						let child = spawn(cmd, argv);
+
+						child.stdout.on('data', b => {
+							process.stdout.write(b.toString());
+						});
+
+						child.stderr.on('data', b => {
+							process.stdout.write(b.toString());
+						});
+
+						++ran;
+					}
+				}
+
+				debugLog(`Ran ${ran} command${ran == 1? '' : 's'}`);
+			}
+
+			if(message.attachments.length == 1)
+				cb(message.attachments[0].filename);
+			else
+				autocompleteInput('$init', 'Select attachment', 'filename', message.attachments.map(at => at.filename), cb);
+		});
 	}
 });
 
@@ -281,7 +358,7 @@ function messageInput(char) {
 	} else {
 		messageWritten += char;
 	}
-	process.stdout.write(clearEnd(`${messageStart}${messageWritten}\r`));
+	process.stdout.write(clearEnd(`${messageStart}${messageWritten}`) + '\r');
 }
 
 let searchPrompt, searchPhrase, searchId, searchSuggestions, searchCallback, searchPossible;
