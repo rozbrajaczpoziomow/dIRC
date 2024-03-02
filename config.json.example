@@ -1,0 +1,10 @@
+{
+	"debug": false,
+	"colors": {
+		"455435762981273630": 214
+	},
+	"attachments": {
+		"image/.*": [ "termimage", "$$fp", "--size", "$$tcx$$tr" ]
+	},
+	"token": "some magic characters"
+}

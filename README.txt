@@ -6,8 +6,8 @@ The TODO list for this project is long, and I may abandon it for no reason.
 
 ---
 Usage:
-Throw your { "token": "..." } in the config.json file, install the package.json dependencies, and run it with NodeJS.
-Mostly meant to be used when SSHing to another pc and firing it up there, then only plaintext data will be sent across the metered cellular network, saving lots of bandwidth.
+Rename config.json.example to config.json and change out the token and other values you might find (like debug). Install the dependencies from package.json, and run it with NodeJS.
+Mostly meant to be used when SSHing to another pc and starting it up there, then only needed plaintext data will be sent across network, saving bandwidth.
 
 ---
 Questions? Contact? Chit-chat?
