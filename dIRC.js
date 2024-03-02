@@ -119,13 +119,16 @@ function restart() {
 
 function printMessage(prev, message) {
 	let needColor = !DisableColors && prev?.author?.id != message.author.id;
-	let c =
-		(message.referenced_message? `[^${currentChannel.history.filter(msg => msg.id == message.referenced_message.id)[0]?.['$seq'] ?? 'old'}] ` : '') +
-		(message.attachments.length > 0? `[&${message.attachments.map(at => at.filename).join(', ')}] ` : '') +
-		message.content;
-	c = c.replaceAll(/<@!?(\d+?)>/g, (match, uid) => `@${Users[uid]}`); // Parsing user mentions
-	if(c.trim() == '')
-		c = JSON.stringify(message); // shouldn't happen.
+
+	let special = [];
+	if(message.referenced_message)
+		special.push(`^${currentChannel.history.filter(msg => msg.id == message.referenced_message.id)[0]?.['$seq'] ?? 'old'}`);
+	if(message.attachments.length > 0)
+		special.push(`&${message.attachments.map(at => at.filename).join(' ')}`);
+
+	let c = (special.length > 0? `[${special.join(' ')}] ` : '') +
+		message.content.replaceAll(/<@!?(\d+?)>/g, (match, uid) => `@${Users[uid]}`); // Parsing user mentions
+
 	let pad = Math.max(usernameLength, message.author.username.length);
 	console.log(`${needColor? getColor(message.author.id) : ''}${`${message['$seq']}`.padEnd(3)} ${message.author.username.padEnd(pad)} ${c}`);
 }
