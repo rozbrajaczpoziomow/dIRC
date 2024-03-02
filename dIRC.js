@@ -1,9 +1,14 @@
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+
 const { WebSocket } = require('ws');
-const { createWriteStream, mkdirSync } = require('node:fs');
+const { createWriteStream, mkdirSync, existsSync } = require('node:fs');
 const { Readable } = require('node:stream');
 const { finished } = require('node:stream/promises');
 const { spawn } = require('node:child_process');
+import mime from 'mime';
 const Config = require('./config.json');
+
 const Debug = Boolean(Config.debug || process.env.DEBUG);
 const DisableColors = Boolean(Config.colors['$disable']);
 
@@ -258,32 +263,37 @@ process.stdin.on('data', buffer => {
 			if(message.attachments.length == 0)
 				return console.log(clearEnd('Message doesn\'t have any attachments') + '\r');
 
-			cb = async aname => {
-				let url = message.attachments.filter(at => at.filename == aname)[0].url;
-
-				if(url.includes('&=&')) // webp conversion, fuck that shit.
-					url = url.slice(0, url.indexOf('&=&'));
-
-				// TODO: instead of downloading every time, check if it exists in fs first (message/uid/mid/aname)
-				let areq = await fetch(url, {
-					headers: {
-						'User-Agent': 'dIRC/1.0' // attachments don't need Authorization
-					}
-				});
-
-				if(areq.status != 200)
-					return console.log(clearEnd('Downloading attachment failed') + '\r');
-
+			let cb = async aname => {
 				let path = `attachments/${currentChannel.uid}/${message.id}`;
-				mkdirSync(path, { recursive: true, mode: 0o755 });
-
 				let fpath = path + `/${aname}`;
-				let stream = createWriteStream(fpath);
-				await finished(Readable.fromWeb(areq.body).pipe(stream));
 
-				let filetype = areq.headers.get('Content-Type');
-				// TODO: instead of hardcoding, use Config with customizable shell commands, replacements like $$file and whatnot.
-				// especially that not everyone has termimage installed and that this probably will suck on windows lmao
+				let filetype;
+				if(existsSync(fpath)) {
+					debugLog('Using version from fs, not redownloading')
+					filetype = mime.getType(fpath);
+				} else {
+					let url = message.attachments.filter(at => at.filename == aname)[0].url;
+
+					if(url.includes('&=&')) // webp conversion, fuck that shit.
+						url = url.slice(0, url.indexOf('&=&'));
+
+					let areq = await fetch(url, {
+						headers: {
+							'User-Agent': 'dIRC/1.0' // attachments don't need Authorization
+						}
+					});
+
+					if(areq.status != 200)
+						return console.log(clearEnd('Downloading attachment failed') + '\r');
+
+					mkdirSync(path, { recursive: true, mode: 0o755 });
+
+					let stream = createWriteStream(fpath);
+					await finished(Readable.fromWeb(areq.body).pipe(stream));
+
+					filetype = areq.headers.get('Content-Type');
+				}
+
 				// $$fp => fpath, $$tc => process.stdout.columns, $$tr => process.stdout.rows
 				let ran = 0;
 				for(let regex in Config.attachments) {

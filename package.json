@@ -4,8 +4,10 @@
   "description": "An IRC-esque Discord commandline experience",
   "main": "dIRC.js",
   "author": "rozbrajaczpoziomow <roz@rozbrajacz.futbol>",
+  "type": "module",
   "license": "MIT",
   "dependencies": {
+    "mime": "^4.0.1",
     "ws": "^8.16.0"
   }
 }
