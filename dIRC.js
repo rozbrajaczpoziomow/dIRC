@@ -23,7 +23,7 @@ function init() {
 	ws.on('error', console.error);
 
 	ws.on('open', () => {
-		debugLog(`>> Connection open`);
+		debugLog(`Connection open`);
 		ws.send(JSON.stringify({op:2,d:{token:Config.token,capabilities:16381,properties:{os:'Linux',browser:'dIRC',device:'',system_locale:'en-US',browser_user_agent:'Możilla/4.1 (X12; Linux x68_46; rv:69.0) Gecko/00000000 Firefox/69.0',browser_version:'69.0',os_version:'',referrer:'',referring_domain:'',referrer_current:'',referring_domain_current:'',release_channel:'stable',client_build_number:260101,client_event_source:null},presence:{status:'online',since:0,activities:[],afk:false},compress:false,client_state:{guild_versions:{},highest_last_message_id:'0',read_state_version:0,user_guild_settings_version:-1,private_channels_version:'0',api_code_version:0}}}));
 		borkedTokenId = setTimeout(() => {
 			console.log('Authentication failed. Exiting.');
@@ -64,15 +64,15 @@ function init() {
 				json.d.users.forEach(u => Users[u.id] = u.username);
 				json.d.private_channels.filter(ch => ch.type == 1).forEach(ch => PrivateChannels[ch.recipient_ids[0]] = ch.id);
 				json.d.relationships.forEach(fr => Friends[fr.id] = Users[fr.id]);
-				debugLog(`>> Loaded ${Object.keys(json.d.users).length} user id mappings`);
-				debugLog(`>> Loaded ${Object.keys(PrivateChannels).length} private channel ids`);
-				debugLog(`>> Loaded ${Object.keys(Friends).length} friend ids`);
+				debugLog(`Loaded ${Object.keys(json.d.users).length} user id mappings`);
+				debugLog(`Loaded ${Object.keys(PrivateChannels).length} private channel ids`);
+				debugLog(`Loaded ${Object.keys(Friends).length} friend ids`);
 				welcomed = true;
 				break;
 
 			case 'READY_SUPPLEMENTAL':
 				json.d.merged_presences.friends.forEach(fr => Presence[fr.user_id] = fr.status);
-				debugLog(`>> Loaded ${json.d.merged_presences.friends.length} friend presences`);
+				debugLog(`Loaded ${json.d.merged_presences.friends.length} friend presences`);
 				Object.keys(Friends).forEach(id => Presence[id] = Presence[id] ?? 'probably offline');
 				break;
 
@@ -111,7 +111,7 @@ function restart() {
 	clearTimeout(heartbeatTermId);
 	if(ws) {
 		ws.terminate();
-		debugLog(`>> Connection restarting`);
+		debugLog(`Connection restarting`);
 	}
 	ws = new WebSocket('wss://gateway.discord.gg/?encoding=json&v=9');
 	init();
@@ -123,6 +123,7 @@ function printMessage(prev, message) {
 		(message.referenced_message? `[^${currentChannel.history.filter(msg => msg.id == message.referenced_message.id)[0]?.['$seq'] ?? 'old'}] ` : '') +
 		(message.attachments.length > 0? `[&${message.attachments.map(at => at.filename).join(', ')}] ` : '') +
 		message.content;
+	c = c.replaceAll(/<@!?(\d+?)>/g, (match, uid) => `@${Users[uid]}`); // Parsing user mentions
 	if(c.trim() == '')
 		c = JSON.stringify(message); // shouldn't happen.
 	let pad = Math.max(usernameLength, message.author.username.length);
@@ -299,7 +300,10 @@ process.stdin.on('data', buffer => {
 				for(let regex in Config.attachments) {
 					// allow multiple commands to run if multiple regexes match, this is intended.
 					if(filetype.match(regex)) {
-						let [cmd, ...argv] = Config.attachments[regex].map(arg => arg.replaceAll('$$fp', fpath).replaceAll('$$tc', process.stdout.columns.toString()).replaceAll('$$tr', process.stdout.rows.toString()));
+						let [cmd, ...argv] = Config.attachments[regex].map(arg => arg
+							.replaceAll('$$fp', fpath)
+							.replaceAll('$$tc', process.stdout.columns.toString())
+							.replaceAll('$$tr', process.stdout.rows.toString()));
 						let child = spawn(cmd, argv);
 
 						child.stdout.on('data', b => {
@@ -362,6 +366,13 @@ function messageInput(char) {
 		return autocompleteInput('$init', 'Reply to', 'number beside message, empty to clear/cancel', [], reply => {
 			reply = +reply;
 			messageReplying = isNaN(reply) || reply < 1 || reply > currentChannel.history.at(-1)['$seq']? null : reply;
+			stdinForward = messageInput;
+			messageInput('$reprompt');
+		});
+	} else if(char == '\t' && messageWritten.at(-1) == '@') {
+		return autocompleteInput('$init', 'Ping', 'searching by username', [Users[ownUID], Users[currentChannel.uid]], username => {
+			let id = username == Users[ownUID]? ownUID : currentChannel.uid;
+			messageWritten = messageWritten.slice(0, -1) + `<@${id}>`;
 			stdinForward = messageInput;
 			messageInput('$reprompt');
 		});
