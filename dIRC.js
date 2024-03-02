@@ -288,7 +288,7 @@ process.stdin.on('data', buffer => {
 					});
 
 					if(areq.status != 200)
-						return console.log(clearEnd('Downloading attachment failed') + '\r');
+						return console.log(clearEnd('Downloading attachment failed'));
 
 					mkdirSync(path, { recursive: true, mode: 0o755 });
 
@@ -322,6 +322,9 @@ process.stdin.on('data', buffer => {
 				}
 
 				debugLog(`Ran ${ran} command${ran == 1? '' : 's'}`);
+
+				if(ran == 0)
+					console.log(clearEnd(`Found no attachment config matching ${filetype}`));
 			}
 
 			if(message.attachments.length == 1)
@@ -457,7 +460,6 @@ function autocompleteInput(char, prompt, rest, possible, callback) {
 		});
 
 	let [s1, s2, s3] = searchSuggestions; // make it s h o r t e r / r e a d a b l e
-	// TODO: don't use a set amount of spaces, check for last written length and add just enough.
 	process.stdout.write(clearEnd(`${searchPrompt}: ${searchId? '$' : ''}${searchPhrase} ${s1? `[~${s1}` : ''}${s2? ` @${s2}` : ''}${s3? ` #${s3}` : ''}${s1? ']' : ''}`) + '\r');
 }
 
