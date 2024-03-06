@@ -130,7 +130,10 @@ function printMessage(prev, message) {
 		message.content.replaceAll(/<@!?(\d+?)>/g, (match, uid) => `@${Users[uid]}`); // Parsing user mentions
 
 	let pad = Math.max(usernameLength, message.author.username.length);
-	console.log(`${needColor? getColor(message.author.id) : ''}${`${message['$seq']}`.padEnd(3)} ${message.author.username.padEnd(pad)} ${c}`);
+	let time = (Config.timestamp == 'none'? '' : new Date(message.timestamp).toLocaleTimeString()) + ' ';
+	if(Config.timestamp == 'hm')
+		time = time.slice(0, time.lastIndexOf(':'));
+	console.log(`${needColor? getColor(message.author.id) : ''}${`${message['$seq']}`.padEnd(3)}${time} ${message.author.username.padEnd(pad)} ${c}`);
 }
 
 const resetColor = '\x1b[0m';
