@@ -4,6 +4,9 @@
 	"colors": {
 		"455435762981273630": 214
 	},
+	"favourites": [
+		"455435762981273630"
+	],
 	"attachments": {
 		"image/.*": [ "termimage", "$$fp", "--size", "$$tcx$$tr" ]
 	},

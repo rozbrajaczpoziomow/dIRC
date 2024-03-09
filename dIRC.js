@@ -64,9 +64,11 @@ function init() {
 				json.d.users.forEach(u => Users[u.id] = u.username);
 				json.d.private_channels.filter(ch => ch.type == 1).forEach(ch => PrivateChannels[ch.recipient_ids[0]] = ch.id);
 				json.d.relationships.forEach(fr => Friends[fr.id] = Users[fr.id]);
+				Config.favourites = Config.favourites.map(uid => Users[uid]);
 				debugLog(`Loaded ${Object.keys(json.d.users).length} user id mappings`);
 				debugLog(`Loaded ${Object.keys(PrivateChannels).length} private channel ids`);
 				debugLog(`Loaded ${Object.keys(Friends).length} friend ids`);
+				debugLog(`Mapped ${Config.favourites.length} favourite ids`);
 				welcomed = true;
 				break;
 
@@ -442,6 +444,11 @@ function autocompleteInput(char, prompt, rest, possible, callback) {
 			if(a == searchPhrase)
 				return -1;
 			if(b == searchPhrase)
+				return 1;
+			// if one of them is in the favourites, sort it first
+			if(Config.favourites.includes(a))
+				return -1;
+			if(Config.favourites.includes(b))
 				return 1;
 			// if one of them starts with the search phrase but the other one doesn't
 			if(a.startsWith(searchPhrase) && !b.startsWith(searchPhrase))
