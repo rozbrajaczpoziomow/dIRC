@@ -337,6 +337,21 @@ process.stdin.on('data', buffer => {
 			else
 				autocompleteInput('$init', 'Select attachment', 'filename', message.attachments.map(at => at.filename), cb);
 		});
+	} else if(key == '$') { // [$] eval menu
+		if(!Debug)
+			return;
+
+		return autocompleteInput('$init', 'Eval', 'js code', [], async code => {
+			try {
+				let res = eval(code);
+				if(res?.then)
+					res = await res;
+
+				console.log(res);
+			} catch(e) {
+				console.log(e);
+			}
+		});
 	}
 });
 
@@ -426,10 +441,6 @@ function autocompleteInput(char, prompt, rest, possible, callback) {
 		if(result == undefined || result == '')
 			return;
 		return searchCallback(result);
-	} else if(char == '$') {
-		searchId = true;
-		searchPhrase = '';
-		// TODO: actually search for IDs or remove this altogether, because, well, why.
 	} else if(char == '\x7f') { // backspace
 		searchPhrase = searchPhrase.slice(0, -1);
 	} else {
