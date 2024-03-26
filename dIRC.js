@@ -119,10 +119,12 @@ function restart() {
 	init();
 }
 
-function printMessage(prev, message) {
+function printMessage(prev, message, flags) {
 	let needColor = !DisableColors && prev?.author?.id != message.author.id;
 
 	let special = [];
+	if(flags?.edited)
+		special.push('*');
 	if(message.referenced_message)
 		special.push(`^${currentChannel.history.filter(msg => msg.id == message.referenced_message.id)[0]?.['$seq'] ?? 'old'}`);
 	if(message.attachments.length > 0)
@@ -248,7 +250,17 @@ process.stdin.on('data', buffer => {
 		if(currentChannel == null)
 			return console.log('[o]pen a channel first');
 
-		return messageInput('$init');
+		return messageInput('$init', null, send => {
+			fetch(`https://discord.com/api/v9/channels/${currentChannel.id}/messages`, {
+				body: JSON.stringify(send),
+				method: 'POST',
+				headers: {
+					'User-Agent': 'dIRC/1.0',
+					'Content-Type': 'application/json',
+					Authorization: Config.token
+				}
+			});
+		});
 	} else if(key == 's') { // [s]tatus
 		if(currentChannel == null)
 			return console.log('[o]pen a channel first');
@@ -337,6 +349,38 @@ process.stdin.on('data', buffer => {
 			else
 				autocompleteInput('$init', 'Select attachment', 'filename', message.attachments.map(at => at.filename), cb);
 		});
+	} else if(key == 'e') { // [e]dit message
+		if(currentChannel == null)
+			return console.log('[o]pen a channel first');
+
+		return autocompleteInput('$init', 'Edit message', 'number beside message', [], mid => {
+			mid = +mid;
+
+			if(isNaN(mid) || mid < 1 || mid > currentChannel.history.at(-1)['$seq'])
+				return console.log(clearEnd('Message doesn\'t exist') + '\r');
+
+			let message = currentChannel.history.filter(m => m['$seq'] == mid)[0];
+
+			if(message == null)
+				return console.log(clearEnd('Message doesn\'t exist') + '\r');
+
+			if(message.author.id != ownUID)
+				return console.log(clearEnd('Message isn\'t yours') + '\r');
+
+			messageInput('$init', message, send => {
+				fetch(`https://discord.com/api/v9/channels/${currentChannel.id}/messages/${message.id}`, {
+					body: JSON.stringify({ content: send.content }),
+					method: 'PATCH',
+					headers: {
+						'User-Agent': 'dIRC/1.0',
+						'Content-Type': 'application/json',
+						Authorization: Config.token
+					}
+				});
+				message.content = send.content;
+				printMessage(null, message, { edited: true });
+			});
+		});
 	} else if(key == '$') { // [$] eval menu
 		if(!Debug)
 			return;
@@ -357,14 +401,24 @@ process.stdin.on('data', buffer => {
 
 // input types
 
-let messageWritten, messageReplying;
-function messageInput(char) {
+let messageWritten, messageReplying, messageCallback;
+function messageInput(char, inherit, callback) {
 	let messageStart = `${DisableColors? '' : getColor(ownUID)}> `;
 	if(char == '$init') {
-		process.stdout.write(messageStart + '\r');
 		stdinForward = messageInput;
-		messageWritten = '';
-		messageReplying = null;
+		messageCallback = data => {
+			stdinForward = undefined;
+			process.stdout.write(clearEnd('') + '\r');
+			callback(data);
+		};
+		if(inherit) {
+			messageWritten = inherit.content;
+			messageReplying = inherit.referenced_message? currentChannel.history.filter(msg => msg.id == inherit.referenced_message.id)[0]?.['$seq'] : null;
+		} else {
+			messageWritten = '';
+			messageReplying = null;
+		}
+		process.stdout.write(`${messageStart} ${messageReplying? `^${messageReplying}` : ''} ${messageWritten}` + '\r');
 		return;
 	}
 	if(messageReplying)
@@ -379,15 +433,7 @@ function messageInput(char) {
 		let send = {content: messageWritten};
 		if(messageReplying)
 			send.message_reference = {message_id: currentChannel.history.filter(m => m['$seq'] == messageReplying)[0]?.id};
-		return fetch(`https://discord.com/api/v9/channels/${currentChannel.id}/messages`, {
-			body: JSON.stringify(send),
-			method: 'POST',
-			headers: {
-				'User-Agent': 'dIRC/1.0',
-				'Content-Type': 'application/json',
-				Authorization: Config.token
-			}
-		});
+		return messageCallback(send);
 	} else if(char == '^' && messageWritten == '') {
 		return autocompleteInput('$init', 'Reply to', 'number beside message, empty to clear/cancel', [], reply => {
 			reply = +reply;
